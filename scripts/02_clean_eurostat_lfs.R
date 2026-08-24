@@ -1,4 +1,4 @@
-# MECP301 Project: Dataset B (Eurostat Human Capital Dependent Variable) Pipeline
+# Project: Dataset B (Eurostat Human Capital Dependent Variable) Pipeline
 # Version 3: Formatted for Blind Ingestion to Bypass Structural Schema Clashes
 
 library(readr)
@@ -14,7 +14,7 @@ output_file_path <- "C:/Users/anind/carbon-pricing-human-capital/data/processed/
 target_countries <- c("DE", "AT", "CH", "NO", "FI", "SE")
 target_years     <- as.character(2015:2025)
 
-cat("🚀 Step 1: Blindly importing raw Eurostat CSV matrix as character lines...\n")
+cat("Step 1: Blindly importing raw Eurostat CSV matrix as character lines...\n")
 # col_names = FALSE skips column parsing completely and assigns X1, X2, X3 automatically
 df_raw <- read_csv(raw_file_path, col_names = FALSE, col_types = cols(.default = col_character()), show_col_types = FALSE)
 
@@ -27,13 +27,13 @@ header_row <- str_trim(header_row)
 df_data_rows <- df_raw %>%
   filter(!str_detect(X1, "Data last updated|Metadata|LAST UPDATE|freq|unit"))
 
-# Re-apply the manually processed header row array onto our clean data rows
+# Re-apply the manually processed header row array onto the clean data rows
 colnames(df_data_rows) <- header_row
 
 # Dynamically locate the messy metadata first column name
 metadata_col <- colnames(df_data_rows)[1]
 
-cat("🔄 Step 2: Melting time-series columns using character safety mapping...\n")
+cat("Step 2: Melting time-series columns using character safety mapping...\n")
 df_long <- df_data_rows %>%
   pivot_longer(
     cols = -all_of(metadata_col), 
@@ -42,7 +42,7 @@ df_long <- df_data_rows %>%
   ) %>%
   filter(Year %in% target_years)
 
-cat("🧩 Step 3: Unpacking comma-separated metadata indices...\n")
+cat("Step 3: Unpacking comma-separated metadata indices...\n")
 # Standard Eurostat layout: breaks metadata column into separate dimensions
 df_unpacked <- df_long %>%
   separate(
@@ -66,7 +66,7 @@ df_cleaned <- df_unpacked %>%
   )
 
 # 5. Execute Research Grouping Classifications
-cat("📊 Step 4: Applying Industry and Skill economic groupings...\n")
+cat("Step 4: Applying Industry and Skill economic groupings...\n")
 df_classified <- df_cleaned %>%
   mutate(
     Sector_Type = case_when(
@@ -86,7 +86,7 @@ df_classified <- df_cleaned %>%
   filter(Sector_Type != "Other-Sectors" & Skill_Level != "Other-Skills")
 
 # 6. Sum Observations Across Dimensions
-cat("降低 Step 5: Aggregating structural rows matrix...\n")
+cat("Step 5: Aggregating structural rows matrix...\n")
 df_panel <- df_classified %>%
   group_by(Country, Year, Sector_Type, Skill_Level) %>%
   summarize(Employment_Count = sum(Employment_Count, na.rm = TRUE), .groups = 'drop') %>%
@@ -106,4 +106,4 @@ df_panel <- df_panel %>%
 # 7. Write clean dataset back into project directory structure
 cat(paste0("💾 Step 6: Saving processed labor file to: ", output_file_path, "\n"))
 write_csv(df_panel, output_file_path)
-cat("✅ Eurostat R structural parsing pipeline successfully completed!\n")
+cat("Eurostat R structural parsing pipeline successfully completed!\n")
