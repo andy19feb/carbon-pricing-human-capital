@@ -1,98 +1,64 @@
 # Project: Dataset B (Eurostat Human Capital Dependent Variable) Pipeline
-# Version 3: Formatted for Blind Ingestion to Bypass Structural Schema Clashes
+# Version 8: Directly Targeting Standardized Schema Headers (TIME_PERIOD and OBS_VALUE)
 
 library(readr)
 library(dplyr)
 library(stringr)
-library(tidyr)
 
 # 1. Establish Absolute Paths
 raw_file_path    <- "C:/Users/anind/carbon-pricing-human-capital/data/raw/eurostat_lfs_lfsa_eisn2_raw.csv"
 output_file_path <- "C:/Users/anind/carbon-pricing-human-capital/data/processed/eurostat_lfs_clean.csv"
 
-# Project Scope
+# Project Scope Boundaries
 target_countries <- c("DE", "AT", "CH", "NO", "FI", "SE")
-target_years     <- as.character(2015:2025)
+target_years     <- 2015:2025
 
-cat("Step 1: Blindly importing raw Eurostat CSV matrix as character lines...\n")
-# col_names = FALSE skips column parsing completely and assigns X1, X2, X3 automatically
-df_raw <- read_csv(raw_file_path, col_names = FALSE, col_types = cols(.default = col_character()), show_col_types = FALSE)
+cat("Step 1: Ingesting natively structured Eurostat CSV dataset...\n")
+# Load using standard numeric parsing for the target double column indicators
+df_raw <- read_csv(raw_file_path, show_col_types = FALSE)
 
-# 2. Extract and Isolate the Real Year Column Labels from the First Row
-header_row <- as.character(df_raw[1, ])
-# Clean whitespace out of header values
-header_row <- str_trim(header_row)
-
-# 3. Clean Out Explanatory or Commentary Rows from Data Matrix
-df_data_rows <- df_raw %>%
-  filter(!str_detect(X1, "Data last updated|Metadata|LAST UPDATE|freq|unit"))
-
-# Re-apply the manually processed header row array onto the clean data rows
-colnames(df_data_rows) <- header_row
-
-# Dynamically locate the messy metadata first column name
-metadata_col <- colnames(df_data_rows)[1]
-
-cat("Step 2: Melting time-series columns using character safety mapping...\n")
-df_long <- df_data_rows %>%
-  pivot_longer(
-    cols = -all_of(metadata_col), 
-    names_to = "Year", 
-    values_to = "Employment_Count"
+cat("Step 2: Isolating geographical target spaces and research timeline filters...\n")
+df_filtered <- df_raw %>%
+  # Filter out metadata lines if they accidentally replicate in row values
+  filter(!is.na(geo) & !is.na(TIME_PERIOD)) %>%
+  mutate(
+    Country     = str_trim(as.character(geo)),
+    Year        = as.integer(TIME_PERIOD),
+    # Ensure employment metrics are strictly numeric doubles
+    Employment  = as.numeric(OBS_VALUE)
   ) %>%
+  filter(Country %in% target_countries) %>%
   filter(Year %in% target_years)
 
-cat("Step 3: Unpacking comma-separated metadata indices...\n")
-# Standard Eurostat layout: breaks metadata column into separate dimensions
-df_unpacked <- df_long %>%
-  separate(
-    col = all_of(metadata_col),
-    into = c("freq", "unit", "isco08", "nace_r2", "sex", "Country"),
-    sep = ","
-  ) %>%
-  # Strip any unexpected characters or trailing whitespaces from codes
-  mutate(Country = str_trim(Country)) %>%
-  filter(Country %in% target_countries)
-
-# 4. Clean Numeric Values and Convert special character symbols (":")
-df_cleaned <- df_unpacked %>%
+cat("Step 3: Mapping NACE Industry and ISCO Skill workforce blocks...\n")
+df_classified <- df_filtered %>%
   mutate(
-    Employment_Count = str_replace_all(Employment_Count, " ", ""),
-    Employment_Count = str_replace_all(Employment_Count, "[a-zA-Z]", ""), # Drops data flags
-    Employment_Count = na_if(Employment_Count, ":"),
-    Employment_Count = as.numeric(Employment_Count),
-    Employment_Count = ifelse(is.na(Employment_Count), 0.0, Employment_Count),
-    Year = as.integer(Year)
-  )
-
-# 5. Execute Research Grouping Classifications
-cat("Step 4: Applying Industry and Skill economic groupings...\n")
-df_classified <- df_cleaned %>%
-  mutate(
+    # Industry Aggregations (NACE Rev. 2)
     Sector_Type = case_when(
-      nace_r2 == "C" ~ "High-Emission", 
-      nace_r2 == "D" ~ "High-Emission", 
-      nace_r2 == "H" ~ "High-Emission", 
+      nace_r2 == "C" ~ "High-Emission",                         # Manufacturing
+      nace_r2 == "D" ~ "High-Emission",                         # Utilities
+      nace_r2 == "H" ~ "High-Emission",                         # Transport
       nace_r2 %in% c("J", "G", "I", "K", "L", "M", "N", 
-                     "O", "P", "Q", "R", "S", "T", "U") ~ "Low-Emission", 
+                     "O", "P", "Q", "R", "S", "T", "U") ~ "Low-Emission", # Services/IT
       TRUE ~ "Other-Sectors"
     ),
+    # Skill Aggregations (ISCO-08)
     Skill_Level = case_when(
-      isco08 %in% c("OC1", "OC2", "OC3") ~ "High-Skill", 
-      isco08 %in% c("OC8", "OC9")        ~ "Low-Skill", 
+      isco08 %in% c("OC1", "OC2", "OC3") ~ "High-Skill", # Managers, Professionals, Technicians
+      isco08 %in% c("OC8", "OC9")        ~ "Low-Skill",  # Plant Operators, Elementary Trades
       TRUE ~ "Other-Skills"
     )
   ) %>%
+  # Filter out general sector categories that fall outside your structural thesis groupings
   filter(Sector_Type != "Other-Sectors" & Skill_Level != "Other-Skills")
 
-# 6. Sum Observations Across Dimensions
-cat("Step 5: Aggregating structural rows matrix...\n")
+cat("Step 4: Consolidating and aggregating final absolute workforce counts...\n")
 df_panel <- df_classified %>%
   group_by(Country, Year, Sector_Type, Skill_Level) %>%
-  summarize(Employment_Count = sum(Employment_Count, na.rm = TRUE), .groups = 'drop') %>%
+  summarize(Employment_Count = sum(Employment, na.rm = TRUE), .groups = 'drop') %>%
   arrange(Country, Year, Sector_Type, Skill_Level)
 
-# Standardize country codes to match full string names
+# Map 2-letter uppercase region abbreviations to full string names
 df_panel <- df_panel %>%
   mutate(Country = case_when(
     Country == "DE" ~ "Germany",
@@ -103,7 +69,10 @@ df_panel <- df_panel %>%
     Country == "SE" ~ "Sweden"
   ))
 
-# 7. Write clean dataset back into project directory structure
-cat(paste0("💾 Step 6: Saving processed labor file to: ", output_file_path, "\n"))
+cat(paste0("Success! Rows processed for final compile: ", nrow(df_panel), "\n"))
+cat("Sample check of cleaned aggregated data entries:\n")
+print(head(df_panel, 6))
+
+# 2. Export Snapshot Matrix back to local disk
 write_csv(df_panel, output_file_path)
 cat("Eurostat R structural parsing pipeline successfully completed!\n")
