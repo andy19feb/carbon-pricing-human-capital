@@ -1,4 +1,4 @@
-# Impact of Carbon Pricing on Intra-firm Human Capital Composition Changes (2015-2025)
+# Master's Thesis: Climate Policy & Labor Dynamics: The Impact of Carbon Pricing on European Human Capital Ratios (2015–2026)
 ### Research Project Paper Portfolio | MA Economics (IGNOU)
 **Target Territory Scope:** Germany, Austria, Switzerland, Norway, Finland, Sweden
 
